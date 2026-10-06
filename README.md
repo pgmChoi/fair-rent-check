@@ -39,7 +39,8 @@
 ```bash
 cd app
 pip install -r requirements.txt
-streamlit run app.py
+pip install scikit-learn
+python -m streamlit run app.py
 ```
 
 첫 실행 때 데이터 정리와 학습에 10초 정도 걸립니다.
