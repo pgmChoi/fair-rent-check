@@ -80,14 +80,15 @@ README.md                 ← GitHub 첫 화면 소개
 docs/                     ← 프로젝트 소개(노션용), 화면 캡처
 notebooks/01~04_*.py      ← Colab 실험 코드 ("# %%" 단위로 셀 하나씩)
 app/
-  app.py                  ← Streamlit 화면
+  app.py                  ← Streamlit 화면 순서 (입력 → 진단 → 결과)
+  ui.py                   ← 화면 모양: 색·CSS·차트·화면 부품 (색은 맨 위 토큰만 고치면 됨)
   rent_core.py            ← 정제·기준선·LightGBM·진단 로직 (실험에서 정한 값은 맨 위 상수)
   data/raw_3년.csv        ← API 원본 3년치 (재수집하려면 notebooks/02 셀 2~4)
   requirements.txt
-  .streamlit/config.toml  ← 버튼 색 파랑 (빨강은 '비쌈' 신호 전용)
+  .streamlit/config.toml  ← 화면 테마: 버튼·강조는 잉크(검정), 빨강은 '비쌈'·파랑은 '저렴' 신호 전용
 ```
 
-실행: `cd app` → `pip install -r requirements.txt` → `streamlit run app.py` (첫 실행 시 학습에 약 10초)
+실행: `cd app` → `pip install -r requirements.txt` → `python -m streamlit run app.py` (첫 실행 시 학습에 약 10초)
 
 ## 6. 작업 방식 (팀원이 Claude에게 원하는 방식)
 
