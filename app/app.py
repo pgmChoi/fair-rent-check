@@ -15,6 +15,7 @@ import rent_core as rc
 import ui
 
 DATA_PATH = Path(__file__).parent / "data" / "raw_3년.csv"
+BLD_PATH = Path(__file__).parent / "data" / "건물정보_정리.csv"   # 건축물대장 (연립다세대 전용)
 
 st.set_page_config(page_title="적정월세 · 원룸 월세 적정가 진단", page_icon="🏠", layout="wide")
 ui.setup()
@@ -31,10 +32,14 @@ def load_all():
     model = rc.RentModel().fit(data)             # 서비스용: 3년치 전체로 학습
     train_b = rc.add_bins(data)
     tables = rc.build_tables(train_b)
-    return data, log, score, period, model, train_b, tables
+    bld = rc.load_buildings(BLD_PATH)
+    data_bld = rc.attach_buildings(data, bld)
+    bscore = rc.evaluate_building(data_bld)      # 성적표: 연립다세대 건물정보 효과
+    bmodel = rc.BuildingModel().fit(data_bld)    # 서비스용: 3년치 전체로 학습
+    return data, log, score, period, model, train_b, tables, bld, bscore, bmodel
 
 
-data, log, score, period, model, train_b, tables = load_all()
+data, log, score, period, model, train_b, tables, bld, bscore, bmodel = load_all()
 dongs = data["동"].value_counts().index.tolist()          # 거래 많은 동부터
 
 ui.header(len(data), f"{data['계약일'].min():%Y.%m}", f"{data['계약일'].max():%Y.%m}")
@@ -62,11 +67,15 @@ with tab_dx:
         with c8:
             ui.spacer(36)
             unknown_by = st.checkbox("건축년도 모름", value=True)
-        st.form_submit_button("진단하기", type="primary", width="stretch")
+        jibun = st.text_input("지번 (연립다세대만, 선택)", placeholder="예: 222-23",
+                              help="빌라·다세대 매물 정보의 지번을 넣으면 건축물대장(층수·승강기·세대수 등)을 반영해요. "
+                                   "다른 유형은 쓰지 않아요.")
+        st.form_submit_button("진단하기", type="primary", **ui.stretch(st.form_submit_button))
 
     # ② 진단 (계산은 rent_core가 한다)
     r = rc.diagnose(model, train_b, tables, dong, kind, area, deposit, rent,
-                    floor=floor or None, build_year=None if unknown_by else build_year)
+                    floor=floor or None, build_year=None if unknown_by else build_year,
+                    jibun=jibun, bmodel=bmodel, bld=bld)
 
     # ③ 결과 보여주기
     ui.listing_title(dong, kind, area, deposit, rent,
@@ -81,6 +90,7 @@ with tab_dx:
             ui.notice("보증금 3,000만 원 초과(반전세)는 거래가 적어 미끼매물 경고를 하지 않아요.")
         if r["n"] < rc.WARN_N:
             ui.notice(f"<b>근거가 부족해요.</b> 비슷한 실제 계약이 {r['n']}건뿐이라 참고만 하세요.", "warn")
+        ui.building_notice(r)
         if not r["know_build_year"]:
             ui.notice("건축년도를 넣으면 평균 오차가 약 5.0만 원 → 4.5만 원으로 줄어요.")
         if kind == "단독다가구" and floor:
@@ -111,7 +121,7 @@ with tab_rec:
         min_area = b3.number_input("최소 면적 (㎡, 상관없으면 0)", min_value=0.0, max_value=33.0, value=0.0, step=1.0)
         kinds = b4.multiselect("주택 유형", ["단독다가구", "연립다세대", "오피스텔"],
                                default=["단독다가구", "연립다세대", "오피스텔"])
-        st.form_submit_button("찾기", type="primary", width="stretch")
+        st.form_submit_button("찾기", type="primary", **ui.stretch(st.form_submit_button))
 
     rec, n_pool, end = rc.recommend(data, max_dep, max_rent, kinds=kinds, min_area=min_area)
     ui.title(f"보증금 {max_dep:,}만 원 · 월세 {max_rent}만 원으로 구하기 쉬운 곳",
@@ -128,9 +138,14 @@ with tab_rec:
 # ---------------------------------------------------------------
 with tab_score:
     ui.title("예측이 실제 계약과 얼마나 맞았나",
-             f"{period.replace('~', ui.T)} · 과거 거래로만 학습하고 이후 계약으로 시험했어요.", gap="tab")
+             f"{period.replace('~', ui.T)} · 과거 거래로만 학습하고 이후 계약으로 시험했어요. "
+             "시험 기간은 데이터가 갱신될 때마다 가장 최근 6개월로 바뀌어요(마지막 1개월은 신고 지연으로 제외).", gap="tab")
     ui.kpi_cards(score)
     ui.score_table(score)
+
+    ui.title("건축물대장 정보를 더하면 (연립다세대)",
+             "지번으로 건물을 찾으면 층수·승강기·세대수 등을 함께 넣어 예측해요. 같은 시험 계약끼리 비교했어요.")
+    ui.building_score(bscore)
 
     c1, c2 = st.columns(2, gap="large")
     with c1:

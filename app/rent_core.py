@@ -10,7 +10,9 @@ import lightgbm as lgb
 # 실험에서 정한 값들 (바꾸면 성적표가 달라지니 팀과 상의 후 변경)
 # ---------------------------------------------------------------
 LO_A, HI_A = 0.20, 0.80          # 04단계 셀 17: 검증 데이터에서 실제 적중률 51%로 고른 범위
-TEST_START, TEST_END = "2026-03-01", "2026-08-31"   # 성적표용 시험 기간 (9월은 신고 지연으로 제외)
+TEST_START, TEST_END = "2026-03-01", "2026-08-31"   # 실험 노트북(01~09)용 고정 시험 기간 — 발표 숫자의 기준
+TEST_MONTHS = 6                  # 앱 성적표: 가장 최근 6개월로 시험 (데이터가 갱신되면 따라 움직임)
+LAG_MONTHS = 1                   # 마지막 1개월은 신고 지연(계약 후 30일 이내 신고)으로 덜 들어와서 시험에서 뺌
 WARN_N = 20                      # 근거 거래가 이보다 적으면 화면에 경고
 MIN_N = 5                        # 기준선에서 한 조건에 필요한 최소 거래 수
 BAIT_RATIO = 0.65                # 08단계: AI 중앙값의 0.65배 이하면 미끼매물 의심 (시험기간 오경보 약 2%)
@@ -23,6 +25,11 @@ PARAMS = dict(n_estimators=300, learning_rate=0.05, num_leaves=15,
 FEATS = ["동", "유형", "면적", "보증금", "층", "건축년도", "경과월"]
 FEATS_NB = [f for f in FEATS if f != "건축년도"]     # 건축년도 모를 때 쓰는 모델
 CATS = ["동", "유형"]
+
+# 건축물대장(건축HUB 표제부) — 팀 합의(2026-10): 연립다세대에만 적용
+BLD_KIND = "연립다세대"
+BLD_FEATS = ["지상층수", "승강기수", "주차대수", "세대수", "주차_세대비", "연면적", "용적률"]
+FEATS_BLD = FEATS + BLD_FEATS
 
 AREA_BINS = [0, 15, 20, 25, 33]
 DEP_BINS = [-1, 100, 300, 500, 1000, 3000, 1e9]
@@ -53,8 +60,10 @@ def clean(raw: pd.DataFrame):
     d = d[d["monthlyRent"].between(10, 150)];  log.append(("월세 이상값 제외", len(d)))
     d = d[d["계약일"].notna()];                 log.append(("계약일 없음 제외", len(d)))
 
-    keep = ["유형", "umdNm", "면적", "floor", "buildYear", "deposit", "monthlyRent", "계약일"]
-    d = d[keep].rename(columns={"umdNm": "동", "floor": "층", "buildYear": "건축년도",
+    if "jibun" not in d.columns:
+        d["jibun"] = np.nan
+    keep = ["유형", "umdNm", "jibun", "면적", "floor", "buildYear", "deposit", "monthlyRent", "계약일"]
+    d = d[keep].rename(columns={"umdNm": "동", "jibun": "지번", "floor": "층", "buildYear": "건축년도",
                                 "deposit": "보증금", "monthlyRent": "월세"})
     # 건축년도 0 같은 잘못된 값은 빈칸으로
     d.loc[d["건축년도"] < 1900, "건축년도"] = np.nan
@@ -151,9 +160,19 @@ def _score(y, pred, lo, hi, label):
             "범위 적중(%)": round(((y >= lo) & (y <= hi)).mean() * 100, 1)}
 
 
-def evaluate(data):
-    train = data[data["계약일"] < TEST_START]
-    test = data[(data["계약일"] >= TEST_START) & (data["계약일"] <= TEST_END)]
+def test_window(data, months=TEST_MONTHS, lag=LAG_MONTHS):
+    """데이터의 가장 최근 달을 기준으로 시험 기간을 자동으로 정한다.
+    예) 마지막 계약이 2026-09 → 9월은 빼고(신고 지연) 2026-03-01 ~ 2026-08-31"""
+    last = data["계약일"].max().to_period("M")
+    end_m = last - lag
+    start_m = end_m - (months - 1)
+    return start_m.start_time.normalize(), end_m.end_time.normalize()
+
+
+def evaluate(data, window=None):
+    start, end = window or test_window(data)
+    train = data[data["계약일"] < start]
+    test = data[(data["계약일"] >= start) & (data["계약일"] <= end)]
     y = test["월세"].values
 
     naive = np.full(len(test), train["월세"].median())
@@ -179,12 +198,33 @@ def evaluate(data):
 # ---------------------------------------------------------------
 # 5. 진단 (화면에서 부르는 함수)
 # ---------------------------------------------------------------
-def diagnose(model, train_b, tables, dong, kind, area, deposit, rent, floor=None, build_year=None):
+def diagnose(model, train_b, tables, dong, kind, area, deposit, rent, floor=None, build_year=None,
+             jibun=None, bmodel=None, bld=None):
     know_by = build_year is not None and not pd.isna(build_year)
     row = pd.DataFrame([{"동": dong, "유형": kind, "면적": area, "보증금": deposit,
                          "층": floor if floor else np.nan,
                          "건축년도": build_year if know_by else np.nan}])
-    lo, mid, hi = (v[0] for v in model.predict(row, use_build_year=know_by))
+
+    # 건축물대장: 연립다세대 + 지번 입력 + 목록에서 건물을 찾았을 때만 '건물정보 모델' 사용
+    building, jibun_status, by_from_ledger = None, None, False
+    jj = norm_jibun(jibun)
+    if jj and kind == BLD_KIND and bld is not None and bmodel is not None:
+        hit = bld[(bld["동"] == dong) & (bld["지번"] == jj)]
+        jibun_status = "found" if len(hit) else "notfound"
+        if len(hit):
+            building = hit.iloc[0].to_dict()
+            for c in BLD_FEATS:
+                row[c] = building[c]
+            if not know_by and not pd.isna(building["승인연도"]):   # 건축년도 모르면 대장 승인연도로 채움
+                row["건축년도"] = building["승인연도"]
+                know_by, by_from_ledger = True, True
+    elif jj:
+        jibun_status = "not_used"          # 연립다세대가 아니면 지번은 쓰지 않음
+
+    if building is not None:
+        lo, mid, hi = (v[0] for v in bmodel.predict(row))
+    else:
+        lo, mid, hi = (v[0] for v in model.predict(row, use_build_year=know_by))
     # 화면에 보이는 숫자(만 원 단위 정수)와 판정 기준을 똑같이 맞춘다
     lo, mid, hi = round(lo), round(mid), round(hi)
 
@@ -203,6 +243,7 @@ def diagnose(model, train_b, tables, dong, kind, area, deposit, rent, floor=None
 
     return {"signal": signal, "lo": lo, "mid": mid, "hi": hi,
             "bait": bait, "bait_cut": bait_cut,
+            "building": building, "jibun_status": jibun_status, "jibun": jj, "by_from_ledger": by_from_ledger,
             "know_build_year": know_by, "pct": pct, "n": len(same),
             "level": level, "same": same.sort_values("계약일", ascending=False)}
 
@@ -241,3 +282,67 @@ def recommend(data, max_deposit, max_rent, kinds=None, min_area=0, months=REC_MO
     # 구하기 쉬운 순서(예산 안 비율), 같으면 넓은 방 먼저
     t = t.sort_values(["예산 안 비율", "평균 면적"], ascending=[False, False])
     return t.head(top).reset_index(drop=True), len(d), end
+
+
+# ---------------------------------------------------------------
+# 7. 건축물대장 (연립다세대 전용) — notebooks/05~07, docs/팀합의_건축물대장_적용.md
+# ---------------------------------------------------------------
+def norm_jibun(j):
+    """'222-23', ' 222 - 23 ', '222-0' → 비교하기 쉬운 형태로"""
+    if j is None or (isinstance(j, float) and np.isnan(j)):
+        return None
+    j = str(j).replace(" ", "").strip()
+    if not j:
+        return None
+    if j.endswith("-0"):
+        j = j[:-2]
+    return j
+
+
+def load_buildings(path):
+    bld = pd.read_csv(path, dtype={"지번": str})
+    bld["지번"] = bld["지번"].map(norm_jibun)
+    return bld.drop_duplicates(["동", "지번"])
+
+
+def attach_buildings(df, bld):
+    """실거래(또는 입력 한 줄)에 동+지번으로 건물정보를 붙인다. 못 찾으면 빈칸."""
+    out = df.drop(columns=[c for c in BLD_FEATS + ["승인연도"] if c in df.columns]).copy()
+    out["지번"] = out["지번"].map(norm_jibun)
+    return out.merge(bld[["동", "지번", "승인연도"] + BLD_FEATS], on=["동", "지번"], how="left")
+
+
+class BuildingModel(RentModel):
+    """연립다세대·오피스텔 거래로 학습한 '건물정보 포함' 분위수 모델 (실험 07과 같은 설정).
+    화면에서는 연립다세대 + 지번으로 건물을 찾았을 때만 쓴다."""
+    def fit(self, train_bld):
+        tr = train_bld[train_bld["유형"].isin([BLD_KIND, "오피스텔"])]
+        self.cat_levels = {c: sorted(tr[c].dropna().unique()) for c in CATS}
+        self.now = tr["계약일"].max()
+        X, y = self.make_X(tr), tr["월세"]
+        self.full = {k: self._fit(X[FEATS_BLD], y, a) for k, a in [("lo", LO_A), ("mid", 0.5), ("hi", HI_A)]}
+        return self
+
+    def predict(self, df, use_build_year=True):
+        X = self.make_X(df)
+        for c in BLD_FEATS:
+            X[c] = pd.to_numeric(X[c], errors="coerce")
+        out = np.column_stack([self.full[k].predict(X[FEATS_BLD]) for k in ["lo", "mid", "hi"]])
+        out = np.sort(out, axis=1)
+        return out[:, 0], out[:, 1], out[:, 2]
+
+
+def evaluate_building(data_bld, window=None):
+    """성적표용: 연립다세대 + 건물 연결된 시험 계약에서 '지금 모델' vs '건물정보 모델'"""
+    start, end = window or test_window(data_bld)
+    train = data_bld[data_bld["계약일"] < start]
+    test = data_bld[(data_bld["계약일"] >= start) & (data_bld["계약일"] <= end)]
+    test = test[(test["유형"] == BLD_KIND) & test["지상층수"].notna()]
+    y = test["월세"].values
+    base = RentModel().fit(train)
+    lo, mid, hi = base.predict(test, use_build_year=True)
+    rows = [_score(y, mid, lo, hi, "지금 모델 (건축년도 앎)")]
+    bm = BuildingModel().fit(train)
+    lo, mid, hi = bm.predict(test)
+    rows.append(_score(y, mid, lo, hi, "건물정보 추가 모델"))
+    return pd.DataFrame(rows)

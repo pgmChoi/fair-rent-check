@@ -8,6 +8,7 @@
 - 빨강은 '비쌈', 파랑은 '저렴' 신호에만. 신호는 항상 글자와 함께 표시(색만으로 구분하지 않음).
 - 그림자는 한 단계(카드)만, 모서리는 둥글게.
 """
+import inspect
 import numpy as np
 import pandas as pd
 import altair as alt
@@ -141,13 +142,23 @@ def _chart_theme():
     }})
 
 
+def stretch(fn):
+    """가로로 꽉 채우기 옵션을 Streamlit 버전에 맞게 고른다.
+    새 버전은 width="stretch", 옛 버전은 use_container_width=True 만 받는다."""
+    try:
+        params = inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        params = {}
+    return {"width": "stretch"} if "width" in params else {"use_container_width": True}
+
+
 def setup():
     """페이지 맨 처음(st.set_page_config 바로 다음)에 한 번 부른다: CSS 적용"""
     html(CSS)
 
 
 def show_chart(chart):
-    st.altair_chart(chart, width="stretch", theme=None)
+    st.altair_chart(chart, theme=None, **stretch(st.altair_chart))
 
 
 def notice(text, kind="info"):
@@ -331,6 +342,26 @@ def checklist():
          '적발 321건 중 부당표시 52%(면적 과장·없는 옵션·계약 끝난 매물 등), 명시의무 위반 48%(관리비 내역 누락 등)</div>')
 
 
+def building_notice(r):
+    """건축물대장 반영 여부 안내 (연립다세대 + 지번 입력 시)"""
+    st_ = r["jibun_status"]
+    if st_ == "found":
+        b = r["building"]
+        parts = [f"지상 {b['지상층수']:.0f}층"]
+        if not pd.isna(b["승강기수"]):
+            parts.append("승강기 있음" if b["승강기수"] > 0 else "승강기 없음")
+        if not pd.isna(b["세대수"]):
+            parts.append(f"{b['세대수']:.0f}세대")
+        if not pd.isna(b["승인연도"]):
+            parts.append(f"{b['승인연도']:.0f}년 사용승인")
+        extra = " 건축년도는 대장의 사용승인연도로 채웠어요." if r["by_from_ledger"] else ""
+        notice(f"<b>건축물대장 정보를 반영했어요</b> ({' · '.join(parts)}).{extra}")
+    elif st_ == "notfound":
+        notice(f"지번 {r['jibun']}의 건물을 저장된 건축물대장 목록에서 찾지 못해 기본 방식으로 계산했어요.")
+    elif st_ == "not_used":
+        notice("지번은 연립다세대 진단에만 써요. 다른 유형은 기본 방식으로 계산했어요.")
+
+
 def disclaimer():
     html('<div class="fr-sub" style="margin-top:40px">관리비는 실거래 데이터에 없어서 반영되지 않았어요. '
          '관리비가 높은 방은 따로 비교하세요. 이 결과는 참고용이며 실제 계약 전 현장 확인이 필요합니다.</div>')
@@ -406,6 +437,21 @@ def score_table(score):
          '<li><b>평균 오차</b>: 예측 월세와 실제 월세의 차이 평균이에요.</li>'
          '<li><b>범위 적중</b>: 실제 월세가 예측 범위 안에 들어간 비율이에요. AI 범위는 실제 계약의 '
          '<b>약 절반</b>이 들어오도록 맞춘 범위라 50% 근처가 목표예요.</li></ul>')
+
+
+def building_score(bscore):
+    """연립다세대 + 건물 연결된 시험 계약에서 지금 모델 vs 건물정보 모델"""
+    cols = ["평균 오차(만원)", "±5만원 이내(%)", "범위 적중(%)"]
+    rows = "".join(
+        f'<tr class="{"ours" if "건물" in row["방법"] else ""}"><td>{row["방법"]}</td>'
+        f'<td class="num">{row["시험건수"]:,}</td>' + "".join(f'<td class="num">{row[c]}</td>' for c in cols) + "</tr>"
+        for _, row in bscore.iterrows())
+    html(f'<table class="fr-table"><tr><th>방법</th><th class="num">시험 건수</th>'
+         f'<th class="num">평균 오차 (만 원)</th><th class="num">±5만 원 이내 (%)</th>'
+         f'<th class="num">범위 적중 (%)</th></tr>{rows}</table>'
+         '<div class="fr-sub" style="margin-top:8px">대상: 시험 기간 연립다세대 중 건축물대장과 연결된 계약 · '
+         '건물정보: 지상층수·승강기·주차·세대수·연면적·용적률 (국토부 건축HUB 표제부) · '
+         '오피스텔은 효과가 없어 적용하지 않고, 단독다가구는 실거래에 지번이 없어 연결할 수 없어요.</div>')
 
 
 def mae_chart(score):
