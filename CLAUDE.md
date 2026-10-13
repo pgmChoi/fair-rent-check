@@ -94,10 +94,11 @@ app/
   data/건물정보_정리.csv  ← 건축물대장 329곳 (notebooks/06·07 셀 8, 연립다세대 진단에만 사용)
   data/전환율_인천.csv    ← 한국부동산원 전월세 전환율 (notebooks/10 셀 5로 갱신, R-ONE 인증키 필요)
   requirements.txt
-  .streamlit/config.toml  ← 화면 테마: 버튼·강조는 잉크(검정), 빨강은 '비쌈'·파랑은 '저렴' 신호 전용
+  (테마 설정은 저장소 맨 위 .streamlit/config.toml — 버튼·강조는 잉크, 빨강은 '비쌈'·파랑은 '저렴' 전용)
 ```
 
-실행: `cd app` → `pip install -r requirements.txt` → `python -m streamlit run app.py` (첫 실행 시 학습에 약 10초)
+실행: **저장소 맨 위 폴더에서** `pip install -r app/requirements.txt` → `python -m streamlit run app/app.py` (첫 실행 시 학습에 약 10초).
+배포: Streamlit Community Cloud, 메인 파일 `app/app.py`. Cloud는 작업 폴더가 항상 저장소 맨 위라서 테마 설정은 `.streamlit/config.toml`(맨 위)에, 시스템 패키지는 `packages.txt`(맨 위, LightGBM용 libgomp1)에 둔다. 패키지 버전은 `app/requirements.txt`에 고정(Python 3.13).
 
 ## 6. 작업 방식 (팀원이 Claude에게 원하는 방식)
 

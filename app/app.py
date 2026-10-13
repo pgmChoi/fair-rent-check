@@ -1,6 +1,6 @@
 """
 원룸 월세 적정가 진단 — Streamlit 화면 (화면 순서만 담당)
-실행:  cd app  →  python -m streamlit run app.py
+실행:  (저장소 맨 위 폴더에서)  python -m streamlit run app/app.py
 
 파일 역할
 - rent_core.py : 정제·모델·진단 계산

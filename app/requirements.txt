@@ -1,5 +1,8 @@
-streamlit>=1.40
-pandas>=2.0
-numpy
-lightgbm>=4.0
-altair>=5.0
+# 배포(Streamlit Community Cloud)와 같은 버전으로 고정 — 2026-10 Python 3.13에서 동작 확인
+# 버전을 올릴 때는 로컬에서 실행 확인 후 함께 바꾸기
+streamlit==1.65.0
+pandas==3.0.5
+numpy==2.5.3
+lightgbm==4.7.0
+scikit-learn==1.9.1   # LightGBM의 LGBMRegressor가 필요로 함 (없으면 실행 에러)
+altair==6.3.0

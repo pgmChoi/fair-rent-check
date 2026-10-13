@@ -37,11 +37,12 @@
 ## 실행 방법
 
 ```bash
-cd app
-pip install -r requirements.txt
-pip install scikit-learn
-python -m streamlit run app.py
+# 저장소 맨 위 폴더(fair-rent-check)에서 실행 — 배포 환경(Streamlit Cloud)과 같은 위치
+pip install -r app/requirements.txt
+python -m streamlit run app/app.py
 ```
+
+Python 3.13 기준으로 버전을 고정했습니다 (pandas 3은 Python 3.11 이상 필요).
 
 첫 실행 때 데이터 정리와 학습에 10초 정도 걸립니다.
 
