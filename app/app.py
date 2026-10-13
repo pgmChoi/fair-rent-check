@@ -38,7 +38,7 @@ data, log, score, period, model, train_b, tables = load_all()
 dongs = data["동"].value_counts().index.tolist()          # 거래 많은 동부터
 
 ui.header(len(data), f"{data['계약일'].min():%Y.%m}", f"{data['계약일'].max():%Y.%m}")
-tab_dx, tab_score, tab_data = st.tabs(["진단하기", "예측 성적표", "데이터와 한계"])
+tab_dx, tab_rec, tab_score, tab_data = st.tabs(["진단하기", "예산으로 찾기", "예측 성적표", "데이터와 한계"])
 
 # ---------------------------------------------------------------
 # 탭 1. 진단하기
@@ -75,6 +75,10 @@ with tab_dx:
 
     with right:                                  # 결과 카드 + 주의 문구
         ui.verdict_card(r, rent)
+        if r["bait"]:
+            ui.bait_alert(r)
+        elif deposit > rc.BAIT_DEP_MAX:
+            ui.notice("보증금 3,000만 원 초과(반전세)는 거래가 적어 미끼매물 경고를 하지 않아요.")
         if r["n"] < rc.WARN_N:
             ui.notice(f"<b>근거가 부족해요.</b> 비슷한 실제 계약이 {r['n']}건뿐이라 참고만 하세요.", "warn")
         if not r["know_build_year"]:
@@ -91,10 +95,36 @@ with tab_dx:
         else:
             ui.notice("비슷한 조건의 실제 계약을 찾지 못했어요. AI 범위만 참고하세요.", "warn")
 
+    with st.expander("계약 전 꼭 확인할 것 4가지", expanded=r["bait"]):
+        ui.checklist()
     ui.disclaimer()
 
 # ---------------------------------------------------------------
-# 탭 2. 예측 성적표
+# 탭 2. 예산으로 찾기
+# ---------------------------------------------------------------
+with tab_rec:
+    with st.form("budget"):
+        ui.budget_form_title()
+        b1, b2, b3, b4 = st.columns(4)
+        max_dep = b1.number_input("보증금 최대 (만 원)", min_value=0, max_value=20000, value=300, step=50)
+        max_rent = b2.number_input("월세 최대 (만 원, 관리비 제외)", min_value=10, max_value=150, value=35, step=1)
+        min_area = b3.number_input("최소 면적 (㎡, 상관없으면 0)", min_value=0.0, max_value=33.0, value=0.0, step=1.0)
+        kinds = b4.multiselect("주택 유형", ["단독다가구", "연립다세대", "오피스텔"],
+                               default=["단독다가구", "연립다세대", "오피스텔"])
+        st.form_submit_button("찾기", type="primary", width="stretch")
+
+    rec, n_pool, end = rc.recommend(data, max_dep, max_rent, kinds=kinds, min_area=min_area)
+    ui.title(f"보증금 {max_dep:,}만 원 · 월세 {max_rent}만 원으로 구하기 쉬운 곳",
+             f"최근 1년({(end - pd.DateOffset(months=rc.REC_MONTHS)):%Y.%m}{ui.T}{end:%Y.%m}) 실제 계약 중 "
+             f"보증금이 예산 이하인 {n_pool:,}건 기준")
+    if len(rec):
+        ui.rec_cards(rec, max_rent)
+        ui.rec_caveat()
+    else:
+        ui.notice("이 예산으로 최근 1년에 계약된 조합이 없어요. 월세나 보증금 상한을 조금 올려 보세요.", "warn")
+
+# ---------------------------------------------------------------
+# 탭 3. 예측 성적표
 # ---------------------------------------------------------------
 with tab_score:
     ui.title("예측이 실제 계약과 얼마나 맞았나",
@@ -113,7 +143,7 @@ with tab_score:
         ui.importance_chart(imp)
 
 # ---------------------------------------------------------------
-# 탭 3. 데이터와 한계
+# 탭 4. 데이터와 한계
 # ---------------------------------------------------------------
 with tab_data:
     c1, c2 = st.columns([1, 1.2], gap="large")

@@ -108,6 +108,8 @@ font-family:"Inter","Noto Sans KR",-apple-system,system-ui,"Malgun Gothic",sans-
 .fr-kpi .lbl{font-size:13px;font-weight:600;color:var(--ink);margin:0 0 8px}
 .fr-bar{height:8px;border-radius:9999px;background:var(--ink);min-width:2px}
 .fr-bar-cell{width:45%}
+.fr-rec td, .fr-rec th{white-space:nowrap}
+.fr-rec .fr-bar-cell{width:26%}
 .fr-footer{margin-top:72px;padding:20px 0 40px;border-top:1px solid var(--hairline-soft);font-size:13px;color:var(--muted);display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
 @media (max-width: 640px){
 .fr-kpis{grid-template-columns:repeat(2,1fr)}
@@ -310,13 +312,66 @@ def comparables_table(same, rent, n=20):
          '<div class="fr-sub" style="margin-top:8px">금액 단위: 만 원 · 회색 줄은 입력하신 월세와 같은 계약</div>')
 
 
+def bait_alert(r):
+    """미끼매물 의심 경고 (AI 예상 중앙값의 65% 이하일 때)"""
+    notice(f"<b>시세보다 크게 싸요.</b> AI 예상 중앙값 {int(r['mid'])}만 원의 65%인 {r['bait_cut']}만 원 이하예요. "
+           "실제 거래에서 이만큼 싼 계약은 약 2%뿐이에요. 허위·미끼매물일 수 있으니 아래 4가지를 꼭 확인하세요.", "warn")
+
+
+def checklist():
+    """계약 전 확인할 것 4가지 (국토부 대학가 광고 단속에서 많이 걸린 유형 기준)"""
+    html('<ol class="fr-list">'
+         '<li><b>방이 지금도 있나요?</b> 매물번호로 중개사무소에 묻고, 직접 볼 수 있는지 확인하세요. '
+         '계약이 끝난 방을 계속 올려 두는 경우가 있어요.</li>'
+         '<li><b>전용면적이 맞나요?</b> 건축물대장(정부24에서 열람)의 면적과 광고 면적을 비교하세요.</li>'
+         '<li><b>옵션이 실제로 있나요?</b> 광고에 적힌 에어컨·세탁기 등을 방에서 직접 확인하세요.</li>'
+         '<li><b>관리비는 얼마이고 무엇이 포함되나요?</b> 금액과 포함 항목(수도·인터넷 등)을 물어보세요. '
+         '이 진단은 관리비를 반영하지 않아요.</li></ol>'
+         '<div class="fr-sub" style="margin-top:8px">근거: 국토교통부 청년 밀집 대학가 부동산 광고 모니터링(2025.10) — '
+         '적발 321건 중 부당표시 52%(면적 과장·없는 옵션·계약 끝난 매물 등), 명시의무 위반 48%(관리비 내역 누락 등)</div>')
+
+
 def disclaimer():
     html('<div class="fr-sub" style="margin-top:40px">관리비는 실거래 데이터에 없어서 반영되지 않았어요. '
          '관리비가 높은 방은 따로 비교하세요. 이 결과는 참고용이며 실제 계약 전 현장 확인이 필요합니다.</div>')
 
 
 # ---------------------------------------------------------------
-# 탭 2. 예측 성적표
+# 탭 2. 예산으로 찾기
+# ---------------------------------------------------------------
+def budget_form_title():
+    html('<div class="fr-form-title">내 예산</div>'
+         '<div class="fr-sub">보증금과 월세 상한을 넣으면, 최근 1년 실제 계약에서 그 예산으로 구하기 쉬웠던 '
+         '동·유형·면적을 찾아드려요.</div>')
+
+
+def rec_cards(t, max_rent):
+    """추천 조합 표: 예산 안 비율 막대 + 근거 계약 수"""
+    rows = ""
+    for i, r in t.iterrows():
+        by = "—" if pd.isna(r["건축년도 중앙값"]) else f"{r['건축년도 중앙값']:.0f}"
+        rows += (f'<tr><td>{i + 1}</td><td>{r["동"]}</td><td>{r["유형"]}</td>'
+                 f'<td>{r["면적"]}</td>'
+                 f'<td class="fr-bar-cell"><div class="fr-bar" style="width:{r["예산 안 비율"]:.0f}%"></div></td>'
+                 f'<td class="num"><b>{r["예산 안 비율"]:.0f}%</b></td>'
+                 f'<td class="num">{int(r["예산 안 계약"])}/{int(r["계약수"])}건</td>'
+                 f'<td class="num">{r["월세 중앙값"]:.0f}</td><td class="num">{by}</td></tr>')
+    html('<div style="overflow-x:auto"><table class="fr-table fr-rec"><tr><th>순위</th><th>동</th><th>유형</th><th>면적</th>'
+         '<th class="fr-bar-cell"></th><th class="num">예산 안 비율</th><th class="num">예산 안/전체</th>'
+         '<th class="num">월세 중앙값</th><th class="num">건축(중앙)</th></tr>'
+         f'{rows}</table></div>'
+         f'<div class="fr-sub" style="margin-top:8px">예산 안 비율 = 그 조합의 최근 1년 계약 중 월세 {max_rent}만 원 이하였던 비율 · '
+         '금액 단위: 만 원 · 계약 10건 이상인 조합만</div>')
+
+
+def rec_caveat():
+    notice("<b>실제 매물이 아니라 시세 기준 추천이에요.</b> 지난 계약으로 계산한 비율이라, 과거 데이터로 확인해 보니 "
+           "다음 6개월에는 평균 약 15%p 낮게 나왔어요(월세가 계속 오르는 중). 그래도 추천 조합은 같은 예산의 "
+           "전체 평균보다 예산 안에 드는 계약이 많았어요(64% vs 45%).")
+
+
+# ---------------------------------------------------------------
+# 탭 3. 예측 성적표
 # ---------------------------------------------------------------
 def kpi_cards(score, ours_name="LightGBM (건축년도 앎)"):
     """성적표 요약 카드 4개 (우리 모델 기준, 기준선 대비 개선율 포함)"""
@@ -379,7 +434,7 @@ def importance_chart(imp):
 
 
 # ---------------------------------------------------------------
-# 탭 3. 데이터와 한계
+# 탭 4. 데이터와 한계
 # ---------------------------------------------------------------
 def funnel_table(log):
     """정제 단계별 남은 건수 + 첫 단계 대비 막대"""

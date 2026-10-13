@@ -13,6 +13,10 @@ LO_A, HI_A = 0.20, 0.80          # 04단계 셀 17: 검증 데이터에서 실�
 TEST_START, TEST_END = "2026-03-01", "2026-08-31"   # 성적표용 시험 기간 (9월은 신고 지연으로 제외)
 WARN_N = 20                      # 근거 거래가 이보다 적으면 화면에 경고
 MIN_N = 5                        # 기준선에서 한 조건에 필요한 최소 거래 수
+BAIT_RATIO = 0.65                # 08단계: AI 중앙값의 0.65배 이하면 미끼매물 의심 (시험기간 오경보 약 2%)
+BAIT_DEP_MAX = 3000              # 08단계: 보증금 3,000만 원 초과(반전세)는 AI가 덜 배워서 경고 제외
+REC_MONTHS = 12                  # 예산 추천: 최근 몇 개월 계약으로 볼지 (3년간 월세가 10~13% 올라서 최근만)
+REC_MIN_N = 10                   # 예산 추천: 한 조합에 필요한 최소 계약 수
 
 PARAMS = dict(n_estimators=300, learning_rate=0.05, num_leaves=15,
               min_child_samples=20, random_state=42, verbose=-1)
@@ -187,6 +191,10 @@ def diagnose(model, train_b, tables, dong, kind, area, deposit, rent, floor=None
     # 신호는 AI 범위 하나로만 정한다 (팀 결정)
     signal = "저렴" if rent < lo else ("비쌈" if rent > hi else "적정")
 
+    # 미끼매물 의심: 시세보다 지나치게 싸면 경고 (판정과 별개로 띄움)
+    bait_cut = round(mid * BAIT_RATIO)
+    bait = (rent <= bait_cut) and (deposit <= BAIT_DEP_MAX)
+
     # 근거: 비슷한 실제 계약 중 몇 % 위치인가 (참고용)
     rb = add_bins(row).iloc[0]
     *_, n, level = baseline_predict(rb, tables)
@@ -194,5 +202,42 @@ def diagnose(model, train_b, tables, dong, kind, area, deposit, rent, floor=None
     pct = (same["월세"] <= rent).mean() * 100 if len(same) else np.nan
 
     return {"signal": signal, "lo": lo, "mid": mid, "hi": hi,
+            "bait": bait, "bait_cut": bait_cut,
             "know_build_year": know_by, "pct": pct, "n": len(same),
             "level": level, "same": same.sort_values("계약일", ascending=False)}
+
+
+# ---------------------------------------------------------------
+# 6. 같은 예산 추천 (실제 계약 기준)
+# ---------------------------------------------------------------
+AREA_LABEL = {"(0, 15]": "15㎡ 이하", "(15, 20]": "15~20㎡", "(20, 25]": "20~25㎡", "(25, 33]": "25~33㎡"}
+
+
+def recommend(data, max_deposit, max_rent, kinds=None, min_area=0, months=REC_MONTHS,
+              min_n=REC_MIN_N, top=8, end=None):
+    """예산(보증금·월세 상한) 안에서 실제로 계약이 많이 이뤄진 동·유형·면적 조합을 찾는다.
+
+    - 최근 months개월 계약만 본다 (월세가 계속 올라서 오래된 계약은 지금 시세와 다름)
+    - 보증금이 예산 이하인 계약만 비교 대상 (보증금을 더 낼 수 없으니까)
+    - '예산 안 비율' = 그 조합의 계약 중 월세가 예산 이하였던 비율 → 높을수록 구하기 쉬움
+    """
+    end = pd.Timestamp(end) if end is not None else data["계약일"].max()
+    d = data[(data["계약일"] > end - pd.DateOffset(months=months)) & (data["계약일"] <= end)]
+    d = d[(d["보증금"] <= max_deposit) & (d["면적"] >= min_area)]
+    if kinds:
+        d = d[d["유형"].isin(kinds)]
+    d = add_bins(d)
+    g = d.groupby(["동", "유형", "면적구간"])
+    t = pd.DataFrame({
+        "계약수": g.size(),
+        "월세 중앙값": g["월세"].median(),
+        "예산 안 비율": g["월세"].apply(lambda x: (x <= max_rent).mean() * 100),
+        "예산 안 계약": g["월세"].apply(lambda x: int((x <= max_rent).sum())),
+        "평균 면적": g["면적"].mean(),
+        "건축년도 중앙값": g["건축년도"].median(),
+    }).reset_index()
+    t = t[(t["계약수"] >= min_n) & (t["예산 안 계약"] > 0)]
+    t["면적"] = t["면적구간"].map(AREA_LABEL).fillna(t["면적구간"])
+    # 구하기 쉬운 순서(예산 안 비율), 같으면 넓은 방 먼저
+    t = t.sort_values(["예산 안 비율", "평균 면적"], ascending=[False, False])
+    return t.head(top).reset_index(drop=True), len(d), end
