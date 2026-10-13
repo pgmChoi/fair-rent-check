@@ -362,6 +362,30 @@ def building_notice(r):
         notice("지번은 연립다세대 진단에만 써요. 다른 유형은 기본 방식으로 계산했어요.")
 
 
+def conversion_box(rent, deposit, new_deposit, conv_row, legal_cap, base_rate, small_diff):
+    """보증금을 바꿨을 때 월세: 부동산원 지역 전환율(기본) + 법정 상한(참고)"""
+    import rent_core as rc
+    diff = new_deposit - deposit
+    main = rc.convert_rent(rent, deposit, new_deposit, conv_row["전환율"])
+    legal = rc.convert_rent(rent, deposit, new_deposit, legal_cap)
+    arrow = "올리면" if diff > 0 else "내리면"
+    rows = (f'<tr class="ours"><td>시장 전환율 (한국부동산원)</td><td class="num">{conv_row["전환율"]:.1f}%</td>'
+            f'<td class="num"><b>{main:.1f}만 원</b></td><td class="num">{main - rent:+.1f}</td></tr>'
+            f'<tr><td>법정 상한 (참고)</td><td class="num">{legal_cap:.1f}%</td>'
+            f'<td class="num">{legal:.1f}만 원</td><td class="num">{legal - rent:+.1f}</td></tr>')
+    html('<table class="fr-table"><tr><th>기준</th><th class="num">전환율</th><th class="num">바뀐 월세</th>'
+         f'<th class="num">차이</th></tr>{rows}</table>'
+         f'<div class="fr-sub" style="margin-top:8px">보증금을 {abs(diff):,}만 원 {arrow} · 월세 = 지금 월세 − 보증금 차이 × 전환율 ÷ 12 · '
+         f'시장 전환율: {conv_row["출처"]} ({conv_row["기준월"]}) · '
+         f'법정 상한: 연 10%와 기준금리({base_rate:.2f}%)+2%p 중 낮은 값 — 계약 기간 중 전환에 적용되는 상한이라 새 계약 시세와는 달라요.</div>')
+    if 0 < abs(diff) < small_diff:
+        notice(f"보증금 차이가 {small_diff:,}만 원보다 작으면, 실제 거래에서는 월세가 거의 안 바뀌는 경우가 많았어요"
+               "(같은 건물 거래 비교). 위 숫자는 공식으로 계산한 기준값이에요.")
+    if diff > 0:
+        notice("보증금을 올리면 월세는 줄지만, 계약이 끝날 때 돌려받아야 할 돈도 커져요. "
+               "등기부등본의 근저당 등을 꼭 확인하세요.")
+
+
 def disclaimer():
     html('<div class="fr-sub" style="margin-top:40px">관리비는 실거래 데이터에 없어서 반영되지 않았어요. '
          '관리비가 높은 방은 따로 비교하세요. 이 결과는 참고용이며 실제 계약 전 현장 확인이 필요합니다.</div>')

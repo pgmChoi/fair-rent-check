@@ -16,6 +16,7 @@ import ui
 
 DATA_PATH = Path(__file__).parent / "data" / "raw_3년.csv"
 BLD_PATH = Path(__file__).parent / "data" / "건물정보_정리.csv"   # 건축물대장 (연립다세대 전용)
+CONV_PATH = Path(__file__).parent / "data" / "전환율_인천.csv"    # 한국부동산원 전월세 전환율 (notebooks/10)
 
 st.set_page_config(page_title="적정월세 · 원룸 월세 적정가 진단", page_icon="🏠", layout="wide")
 ui.setup()
@@ -36,10 +37,11 @@ def load_all():
     data_bld = rc.attach_buildings(data, bld)
     bscore = rc.evaluate_building(data_bld)      # 성적표: 연립다세대 건물정보 효과
     bmodel = rc.BuildingModel().fit(data_bld)    # 서비스용: 3년치 전체로 학습
-    return data, log, score, period, model, train_b, tables, bld, bscore, bmodel
+    conv = rc.load_conv(CONV_PATH)
+    return data, log, score, period, model, train_b, tables, bld, bscore, bmodel, conv
 
 
-data, log, score, period, model, train_b, tables, bld, bscore, bmodel = load_all()
+data, log, score, period, model, train_b, tables, bld, bscore, bmodel, conv = load_all()
 dongs = data["동"].value_counts().index.tolist()          # 거래 많은 동부터
 
 ui.header(len(data), f"{data['계약일'].min():%Y.%m}", f"{data['계약일'].max():%Y.%m}")
@@ -104,6 +106,16 @@ with tab_dx:
                 ui.comparables_table(r["same"], rent)
         else:
             ui.notice("비슷한 조건의 실제 계약을 찾지 못했어요. AI 범위만 참고하세요.", "warn")
+
+    # ④ 보증금 바꾸면? (전환율 공식. AI 모델은 보증금 역설 때문에 쓰지 않음)
+    ui.title("보증금을 바꾸면 월세는?",
+             "집주인과 보증금·월세 조합을 조정할 때 참고하세요. 위 AI 진단과는 별개의 공식 계산이에요.")
+    new_dep = st.number_input("바꿀 보증금 (만 원)", min_value=0, max_value=20000,
+                              value=int(deposit) + 1000, step=100, key="new_deposit")
+    if new_dep == deposit:
+        ui.notice("지금 보증금과 같아요. 다른 금액을 넣어 보세요.")
+    else:
+        ui.conversion_box(rent, deposit, new_dep, conv[kind], rc.LEGAL_CAP, rc.BASE_RATE, rc.SMALL_DEP_DIFF)
 
     with st.expander("계약 전 꼭 확인할 것 4가지", expanded=r["bait"]):
         ui.checklist()

@@ -19,6 +19,9 @@ BAIT_RATIO = 0.65                # 08단계: AI 중앙값의 0.65배 이하면 �
 BAIT_DEP_MAX = 3000              # 08단계: 보증금 3,000만 원 초과(반전세)는 AI가 덜 배워서 경고 제외
 REC_MONTHS = 12                  # 예산 추천: 최근 몇 개월 계약으로 볼지 (3년간 월세가 10~13% 올라서 최근만)
 REC_MIN_N = 10                   # 예산 추천: 한 조합에 필요한 최소 계약 수
+BASE_RATE = 3.00                 # 한국은행 기준금리 (2026-08-27 결정). 금통위 결과가 바뀌면 여기만 고친다
+LEGAL_CAP = min(10.0, BASE_RATE + 2.0)   # 주택임대차보호법 시행령 제9조: 연 10%와 기준금리+2%p 중 낮은 값
+SMALL_DEP_DIFF = 1000            # 보증금 차이가 이보다 작으면 실제로는 월세가 거의 안 바뀜 (같은 건물 거래 비교, 중앙값 0%)
 
 PARAMS = dict(n_estimators=300, learning_rate=0.05, num_leaves=15,
               min_child_samples=20, random_state=42, verbose=-1)
@@ -346,3 +349,18 @@ def evaluate_building(data_bld, window=None):
     lo, mid, hi = bm.predict(test)
     rows.append(_score(y, mid, lo, hi, "건물정보 추가 모델"))
     return pd.DataFrame(rows)
+
+
+# ---------------------------------------------------------------
+# 8. 보증금 바꾸면? (전월세 전환율 공식 — 모델은 쓰지 않음, 보증금 역설 때문)
+# ---------------------------------------------------------------
+def load_conv(path):
+    """한국부동산원 인천 전월세 전환율 (notebooks/10에서 받음). {유형: {전환율, 기준월, 출처}}"""
+    t = pd.read_csv(path)
+    return {r["유형"]: r.to_dict() for _, r in t.iterrows()}
+
+
+def convert_rent(rent, deposit, new_deposit, rate):
+    """보증금을 new_deposit으로 바꿀 때의 월세 = 지금 월세 - (보증금 차이 × 전환율 ÷ 12)
+    보증금을 올리면 월세가 줄고, 내리면 늘어난다. (금액 단위: 만 원, 전환율 단위: %)"""
+    return max(0.0, rent - (new_deposit - deposit) * rate / 100 / 12)
