@@ -1,0 +1,7 @@
+# API 서버(FastAPI) + 계산(rent_core) — Cloud Run 배포용. 버전은 2026-10 동작 확인 기준
+fastapi==0.162.0
+uvicorn==0.53.0
+pandas==3.0.5
+numpy==2.5.3
+lightgbm==4.7.0
+scikit-learn==1.9.1

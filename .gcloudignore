@@ -1,0 +1,14 @@
+# gcloud run deploy --source . 로 올릴 때 빼는 파일 (Dockerfile에 필요한 것만 올리기)
+.gcloudignore
+.git
+.gitignore
+**/node_modules
+web/dist
+**/__pycache__
+.venv
+venv
+notebooks
+docs
+.devcontainer
+.env
+**/secrets.toml

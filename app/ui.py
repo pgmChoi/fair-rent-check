@@ -213,6 +213,30 @@ def form_title():
          '<div class="fr-sub">직방·다방 매물 화면에 나온 값을 그대로 넣으세요.</div>')
 
 
+def paste_help():
+    html('<div class="fr-sub">직방(PC)에서 매물 상세 화면 위쪽(<b>월세 300/45 · 관리비</b>)과 '
+         '<b>더보기 → 매물 정보</b> 창을 드래그해 복사한 뒤 이어서 붙여 넣으세요. 읽은 값이 아래 칸에 채워져요.</div>')
+
+
+PASTE_LABEL = {"동": "동", "유형": "주택 유형", "면적": "전용면적", "보증금": "보증금", "월세": "월세",
+               "층": "층", "건축년도": "건축년도", "지번": "지번"}
+
+
+def paste_result(p):
+    """붙여넣기에서 읽은 값 / 못 읽은 값 / 주의 문구"""
+    f, e = p["found"], p["extra"]
+    unit = {"면적": "㎡", "보증금": "만 원", "월세": "만 원", "층": "층", "건축년도": "년"}
+    got = " · ".join(f"{PASTE_LABEL[k]} {val}{unit.get(k, '')}" for k, val in f.items())
+    ref = " · ".join(f"{k} {val}" for k, val in e.items() if k in ("관리비", "엘리베이터", "주차", "위반건축물", "등록번호"))
+    if got:
+        notice(f"<b>읽은 값</b>: {got}" + (f"<br><span style='color:var(--muted)'>참고: {ref}</span>" if ref else ""))
+    if p["missing"]:
+        notice("<b>못 읽은 값</b>: " + ", ".join(PASTE_LABEL[k] for k in p["missing"])
+               + " — 아래 칸에서 직접 넣어 주세요.", "warn")
+    for m in p["msgs"]:
+        notice(m, "warn")
+
+
 def spacer(px):
     html(f"<div style='height:{px}px'></div>")
 
@@ -521,5 +545,6 @@ def limits_list():
          '<li>단독다가구는 데이터에 층과 지번이 없어요.</li>'
          '<li>보증금 6천만 원 이하이면서 월세 30만 원 이하인 계약은 신고 의무가 없어 일부만 들어 있어요.</li>'
          f'<li>최근 1{T}2개월 계약은 신고 지연으로 덜 반영되어 있을 수 있어요.</li>'
-         '<li>"보증금을 바꾸면 월세가 얼마?" 계산은 AI 모델로 하지 않아요 (7주차에 전환율 공식으로 추가 예정).</li>'
+         '<li>"보증금을 바꾸면 월세가 얼마?" 계산은 AI 모델이 아니라 한국부동산원 전환율 공식으로 해요.</li>'
+         '<li>붙여넣기는 직방 PC 화면 문구 기준이에요. 문구가 바뀌면 일부 값을 못 읽을 수 있어요.</li>'
          '</ul>')

@@ -13,6 +13,7 @@ import streamlit as st
 
 import rent_core as rc
 import ui
+from listing_parser import parse_listing, check_scope
 
 DATA_PATH = Path(__file__).parent / "data" / "raw_3년.csv"
 BLD_PATH = Path(__file__).parent / "data" / "건물정보_정리.csv"   # 건축물대장 (연립다세대 전용)
@@ -51,25 +52,59 @@ tab_dx, tab_rec, tab_score, tab_data = st.tabs(["진단하기", "예산으로 �
 # 탭 1. 진단하기
 # ---------------------------------------------------------------
 with tab_dx:
+    # ⓪ 직방 매물 정보 붙여넣기 → 아래 입력칸 자동 채우기 (listing_parser.py, 규칙 기반)
+    KINDS = ["단독다가구", "연립다세대", "오피스텔"]
+    defaults = {"f_dong": "용현동" if "용현동" in dongs else dongs[0], "f_kind": KINDS[0], "f_area": 16.0,
+                "f_floor": 0, "f_dep": 300, "f_rent": 32, "f_by": 2005, "f_unknown_by": True, "f_jibun": ""}
+    for k, val in defaults.items():
+        st.session_state.setdefault(k, val)
+
+    with st.expander("직방 매물 정보 붙여넣기로 채우기", expanded=True):
+        ui.paste_help()
+        paste = st.text_area("붙여넣기", height=140, label_visibility="collapsed",
+                             placeholder="월세 300/45\n인천시 미추홀구 용현동 · 관리비 5만원\n...\n전용 23.14m²\n다가구주택\n20020605 준공\n미추홀구 용현동 83-13")
+        if st.button("붙여 넣은 내용 읽기"):
+            p = parse_listing(paste)
+            v, ss = p["values"], st.session_state
+            msgs = p["warnings"] + check_scope(v, dongs)
+            if v.get("동") in dongs:
+                ss.f_dong = v["동"]
+            if v.get("유형") in KINDS:
+                ss.f_kind = v["유형"]
+            if "면적" in v:
+                ss.f_area = float(min(33.0, max(8.0, v["면적"])))
+            if "층" in v:
+                ss.f_floor = max(0, v["층"])
+            if "보증금" in v:
+                ss.f_dep = int(min(20000, v["보증금"]))
+            if "월세" in v:
+                ss.f_rent = int(min(200, max(1, v["월세"])))
+            if "건축년도" in v and 1960 <= v["건축년도"] <= 2026:
+                ss.f_by, ss.f_unknown_by = int(v["건축년도"]), False
+            ss.f_jibun = v.get("지번", "") if v.get("유형") == rc.BLD_KIND else ""
+            ss.parsed = {"found": v, "extra": p["extra"], "missing": p["missing"], "msgs": msgs}
+        if "parsed" in st.session_state:
+            ui.paste_result(st.session_state.parsed)
+
     # ① 매물 정보 입력
     with st.form("input"):
         ui.form_title()
         c1, c2, c3, c4 = st.columns(4)
-        dong = c1.selectbox("동", dongs, index=dongs.index("용현동") if "용현동" in dongs else 0)
-        kind = c2.selectbox("주택 유형", ["단독다가구", "연립다세대", "오피스텔"],
+        dong = c1.selectbox("동", dongs, key="f_dong")
+        kind = c2.selectbox("주택 유형", KINDS, key="f_kind",
                             help="직방의 '다가구주택'은 단독다가구, '빌라·다세대'는 연립다세대입니다.")
-        area = c3.number_input("전용면적 (㎡)", min_value=8.0, max_value=33.0, value=16.0, step=0.5)
-        floor = c4.number_input("층 (모르면 0)", min_value=0, max_value=30, value=0, step=1,
+        area = c3.number_input("전용면적 (㎡)", min_value=8.0, max_value=33.0, step=0.5, key="f_area")
+        floor = c4.number_input("층 (모르면 0)", min_value=0, max_value=30, step=1, key="f_floor",
                                 help="단독다가구는 실거래 데이터에 층이 없어서 결과에 반영되지 않습니다.")
         c5, c6, c7, c8 = st.columns(4)
-        deposit = c5.number_input("보증금 (만 원)", min_value=0, max_value=20000, value=300, step=50)
-        rent = c6.number_input("월세 (만 원, 관리비 제외)", min_value=1, max_value=200, value=32, step=1)
-        build_year = c7.number_input("건축(준공)년도", min_value=1960, max_value=2026, value=2005, step=1,
+        deposit = c5.number_input("보증금 (만 원)", min_value=0, max_value=20000, step=50, key="f_dep")
+        rent = c6.number_input("월세 (만 원, 관리비 제외)", min_value=1, max_value=200, step=1, key="f_rent")
+        build_year = c7.number_input("건축(준공)년도", min_value=1960, max_value=2026, step=1, key="f_by",
                                      help="직방 매물 정보의 '준공' 날짜를 넣으세요.")
         with c8:
             ui.spacer(36)
-            unknown_by = st.checkbox("건축년도 모름", value=True)
-        jibun = st.text_input("지번 (연립다세대만, 선택)", placeholder="예: 222-23",
+            unknown_by = st.checkbox("건축년도 모름", key="f_unknown_by")
+        jibun = st.text_input("지번 (연립다세대만, 선택)", placeholder="예: 222-23", key="f_jibun",
                               help="빌라·다세대 매물 정보의 지번을 넣으면 건축물대장(층수·승강기·세대수 등)을 반영해요. "
                                    "다른 유형은 쓰지 않아요.")
         st.form_submit_button("진단하기", type="primary", **ui.stretch(st.form_submit_button))

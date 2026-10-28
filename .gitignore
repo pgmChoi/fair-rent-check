@@ -13,3 +13,7 @@ secrets.toml
 # 운영체제 파일
 .DS_Store
 Thumbs.db
+
+# React (web/)
+web/node_modules/
+web/dist/

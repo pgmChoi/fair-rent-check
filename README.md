@@ -1,6 +1,6 @@
 # fair-rent-check — 원룸 월세 적정가 진단
 
-인천 미추홀구 원룸의 **동·유형·면적·보증금·건축년도**를 넣으면, 국토교통부 전월세 실거래가로 학습한 AI가
+직방 매물 정보를 **복사해서 붙여 넣거나** 인천 미추홀구 원룸의 **동·유형·면적·보증금·건축년도**를 넣으면, 국토교통부 전월세 실거래가로 학습한 AI가
 **적정 월세 범위**와 **비슷한 실제 계약 중 위치**를 보여주고 저렴 / 적정 / 비쌈을 판정합니다.
 
 > AI캡스톤디자인 팀 프로젝트 (2026년 2학기)
@@ -36,8 +36,22 @@
 
 ## 실행 방법
 
+**React 화면 + FastAPI 서버 (기본)** — 자세한 내용과 Google Cloud Run 배포는 [docs/React_실행과_배포.md](docs/React_실행과_배포.md)
+
 ```bash
-# 저장소 맨 위 폴더(fair-rent-check)에서 실행 — 배포 환경(Streamlit Cloud)과 같은 위치
+# 터미널 1: API 서버 (저장소 맨 위 폴더에서)
+pip install -r api/requirements.txt
+python -m uvicorn api.main:app --reload --port 8000
+
+# 터미널 2: React 화면
+cd web
+npm install
+npm run dev        # http://localhost:5173
+```
+
+**Streamlit (내부 검증용)**
+
+```bash
 pip install -r app/requirements.txt
 python -m streamlit run app/app.py
 ```
@@ -49,7 +63,10 @@ Python 3.13 기준으로 버전을 고정했습니다 (pandas 3은 Python 3.11 �
 ## 폴더 구성
 
 ```
-app/          Streamlit 화면(app.py), 핵심 로직(rent_core.py), 데이터
+web/          React 화면 (진단하기 · 북마크 비교 · 예산으로 찾기 · 예측 성적표)
+api/          FastAPI 서버 (rent_core를 불러 JSON으로 돌려줌)
+tests/        pytest (붙여넣기 파서, API)
+app/          핵심 로직(rent_core.py), 붙여넣기 파서(listing_parser.py), Streamlit 화면(app.py), 데이터
 notebooks/    Google Colab 실험 코드 01~04 ("# %%" 단위로 셀 하나씩)
 docs/         프로젝트 소개, 화면 캡처
 CLAUDE.md     팀원이 Claude와 작업할 때 쓰는 프로젝트 안내서

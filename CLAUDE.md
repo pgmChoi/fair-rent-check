@@ -86,8 +86,15 @@ README.md                 ← GitHub 첫 화면 소개
 팀공유_진행상황.md          ← 사람용 요약
 docs/                     ← 프로젝트 소개(노션용), 화면 캡처
 notebooks/01~10_*.py      ← Colab 실험 코드 (08 미끼매물 기준, 09 예산 추천 검증, 10 부동산원 전환율) ("# %%" 단위로 셀 하나씩)
+web/                      ← React 화면 (Vite). src/App.jsx 탭: 진단하기 / 북마크 비교 / 예산으로 찾기 / 예측 성적표
+  src/api.js              ← API 부르기 (모든 계산은 서버에서)
+  src/bookmarks.js        ← 북마크 = 브라우저 localStorage (로그인 없음, 최대 30개)
+api/main.py               ← FastAPI 서버. rent_core·listing_parser를 그대로 불러 JSON으로 돌려줌. web/dist가 있으면 화면도 같이 보냄
+tests/                    ← pytest (파서 6개 + API 6개). 바꾼 뒤 python -m pytest tests -q
+Dockerfile, .gcloudignore ← Google Cloud Run 배포 (React 빌드 + 파이썬 서버를 한 컨테이너로)
 app/
-  app.py                  ← Streamlit 화면 순서 (탭: 진단하기 / 예산으로 찾기 / 예측 성적표 / 데이터와 한계)
+  listing_parser.py       ← 직방 '더보기' 등 붙여넣은 글자 → 진단 입력값 (정규식, LLM 안 씀)
+  app.py                  ← Streamlit 화면 순서 (내부 검증용으로 유지. 붙여넣기 칸도 있음) (탭: 진단하기 / 예산으로 찾기 / 예측 성적표 / 데이터와 한계)
   ui.py                   ← 화면 모양: 색·CSS·차트·화면 부품 (색은 맨 위 토큰만 고치면 됨)
   rent_core.py            ← 정제·기준선·LightGBM·진단 로직 (실험에서 정한 값은 맨 위 상수)
   data/raw_3년.csv        ← API 원본 3년치 (재수집하려면 notebooks/02 셀 2~4)
@@ -97,7 +104,9 @@ app/
   (테마 설정은 저장소 맨 위 .streamlit/config.toml — 버튼·강조는 잉크, 빨강은 '비쌈'·파랑은 '저렴' 전용)
 ```
 
-실행: **저장소 맨 위 폴더에서** `pip install -r app/requirements.txt` → `python -m streamlit run app/app.py` (첫 실행 시 학습에 약 10초).
+실행(React, 2026-10-28부터 기본): `docs/React_실행과_배포.md` 참고 — API `python -m uvicorn api.main:app --reload --port 8000` + 화면 `cd web && npm run dev`.
+실행(Streamlit, 내부 검증용): **저장소 맨 위 폴더에서** `pip install -r app/requirements.txt` → `python -m streamlit run app/app.py` (첫 실행 시 학습에 약 10초).
+규칙: 계산·문구 규칙은 rent_core.py에만 둔다. React와 Streamlit이 같은 결과를 내야 한다.
 배포: Streamlit Community Cloud, 메인 파일 `app/app.py`. Cloud는 작업 폴더가 항상 저장소 맨 위라서 테마 설정은 `.streamlit/config.toml`(맨 위)에, 시스템 패키지는 `packages.txt`(맨 위, LightGBM용 libgomp1)에 둔다. 패키지 버전은 `app/requirements.txt`에 고정(Python 3.13).
 
 ## 6. 작업 방식 (팀원이 Claude에게 원하는 방식)
@@ -119,22 +128,18 @@ app/
 - 무작위 분할(train_test_split shuffle)로 성능 재기
 - 건축년도가 빈칸인 입력을 전체 모델(건축년도 포함)에 넣기
 - 모델로 "보증금을 바꾸면 월세 얼마" 계산하기
-- 마트·부동산 사이트 크롤링 (약관 문제)
+- 마트·부동산 사이트 크롤링 (약관 문제) — 붙여넣기는 사용자가 자기 화면에서 직접 복사한 글자만 읽는다
+- 서버에 사용자 매물 정보 저장하기 (북마크는 브라우저에만)
 - 관리비가 반영된 것처럼 표시하기
 - 근거 거래 수를 숨기기
 
-## 8. 다음 할 일 (2026-10-13 기준)
+## 8. 다음 할 일 (2026-10-28 기준)
 
-**합의 완료 (2026-10-13):** 건축물대장 정보를 연립다세대에만 적용 → 앱 반영함 (근거: `docs/팀합의_건축물대장_적용.md`, 실험: `notebooks/05~07`).
-처음 보는 지번의 실시간 건축물대장 조회는 아직 안 함 (인증키를 서버에 숨기는 작업 필요).
+**교수님 피드백(10/28) 대응:** ① 사용 시나리오 → 직방 PC 화면 복사·붙여넣기 자동 입력(정규식) ② 북마크 비교 ③ Streamlit → React + FastAPI + Google Cloud Run. 셋 다 코드 완료, 배포는 아직.
 
-
-1. 팀원 각자 Streamlit 실행해 보고 화면 피드백
-2. 학생 5~10명 설문/사용 테스트 ("방 구할 때 시세 어떻게 확인?", 실제로 써 보게 하기)
-3. 다방·네이버부동산의 원룸 시세 기능 확인 (캡처)
-4. ~~"보증금 바꾸면?" 기능~~ 완료(2026-10-13). 기준금리가 바뀌면 rent_core.BASE_RATE 수정 (다음 금통위 2026-10-22 예정)
-5. 7~8주차: Claude API로 "왜 비싸다고 봤는지" 설명 문장 (근거 거래를 넣어주고 문장만 생성)
-6. 배포: Streamlit Community Cloud 검토 (무료 조건은 공식 문서로 확인)
-   + GitHub Actions로 매달 1일 최근 3개월치를 다시 받아 raw CSV 갱신 (공개 저장소라 무료)
-8. 캡처·복사 붙여넣기 자동 입력 (LLM으로 매물 화면에서 동·면적·보증금·월세·층·준공연도 추출)
-7. 아직 미정: 주변 구(연수구·남동구) 추가 여부, 역할 분담 확정
+1. Google Cloud Run 배포 (`docs/React_실행과_배포.md` — 결제 계정·로그인은 본인이 직접)
+2. 사용자 테스트 3명 (`docs/사용자테스트_계획.md`) — React 버전으로
+3. 붙여넣기: 직방 화면 몇 개 더 복사해서 tests/test_listing_parser.py에 예시 추가 (오피스텔·빌라·반지하)
+4. GitHub Actions로 매달 1일 최근 3개월치를 다시 받아 raw CSV 갱신
+5. 기준금리가 바뀌면 rent_core.BASE_RATE 수정
+6. 아직 미정: 주변 구(연수구·남동구) 추가 여부
